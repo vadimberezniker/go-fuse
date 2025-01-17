@@ -372,11 +372,9 @@ func (ms *Server) readRequest(exitIdle bool) (req *requestAlloc, code Status) {
 	})
 	ms.reqMu.Lock()
 	if len(ms.reqLogs) == 100 {
-		var entries []string
 		for _, e := range ms.reqLogs {
-			entries = append(entries, fmt.Sprintf("%s %s %t", e.startRead, e.finishRead.Sub(e.startRead), e.success))
+			ms.opts.Logger.Printf("req: %s", fmt.Sprintf("%s %s %t", e.startRead, e.finishRead.Sub(e.startRead), e.success))
 		}
-		ms.opts.Logger.Printf("reqs: %s", strings.Join(entries, ", "))
 	} else if len(ms.reqLogs) < 101 {
 		ms.reqLogs = append(ms.reqLogs, reqLog)
 	}
