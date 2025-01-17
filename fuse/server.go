@@ -131,6 +131,15 @@ func (ms *Server) Unmount() (err error) {
 	if parseFuseFd(ms.mountPoint) >= 0 {
 		return fmt.Errorf("Cannot unmount magic mountpoint %q. Please use `fusermount -u REALMOUNTPOINT` instead.", ms.mountPoint)
 	}
+	ms.reqMu.Lock()
+	var entriesToLog []string
+	for _, e := range ms.reqLogs {
+		entriesToLog = append(entriesToLog, fmt.Sprintf("req %s %s %t", e.startRead, e.finishRead.Sub(e.startRead), e.success))
+	}
+	ms.reqMu.Unlock()
+	for _, e := range entriesToLog {
+		ms.opts.Logger.Println(e)
+	}
 	delay := time.Duration(0)
 	for try := 0; try < 5; try++ {
 		err = unmount(ms.mountPoint, ms.opts)
@@ -370,22 +379,11 @@ func (ms *Server) readRequest(exitIdle bool) (req *requestAlloc, code Status) {
 		reqLog.success = err == nil
 		return err
 	})
-	var entriesToLog []string
 	ms.reqMu.Lock()
-	if len(ms.reqLogs) == 100 {
-		for _, e := range ms.reqLogs {
-			entriesToLog = append(entriesToLog, fmt.Sprintf("req %s %s %t", e.startRead, e.finishRead.Sub(e.startRead), e.success))
-		}
-	}
-	if len(ms.reqLogs) < 101 {
+	if len(ms.reqLogs) < 100 {
 		ms.reqLogs = append(ms.reqLogs, reqLog)
 	}
 	ms.reqMu.Unlock()
-	if len(entriesToLog) > 0 {
-		for _, e := range entriesToLog {
-			ms.opts.Logger.Println(e)
-		}
-	}
 	if err != nil {
 		code = ToStatus(err)
 		ms.reqPool.Put(reqIface)
