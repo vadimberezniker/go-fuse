@@ -376,7 +376,8 @@ func (ms *Server) readRequest(exitIdle bool) (req *requestAlloc, code Status) {
 		for _, e := range ms.reqLogs {
 			entriesToLog = append(entriesToLog, fmt.Sprintf("req %s %s %t", e.startRead, e.finishRead.Sub(e.startRead), e.success))
 		}
-	} else if len(ms.reqLogs) < 101 {
+	}
+	if len(ms.reqLogs) < 101 {
 		ms.reqLogs = append(ms.reqLogs, reqLog)
 	}
 	ms.reqMu.Unlock()
