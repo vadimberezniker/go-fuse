@@ -61,9 +61,10 @@ type Server struct {
 	reqPool sync.Pool
 
 	// Pool for raw requests data
-	readPool   sync.Pool
-	reqMu      sync.Mutex
-	reqReaders int
+	readPool              sync.Pool
+	reqMu                 sync.Mutex
+	reqReaders            int
+	processedFirstRequest bool
 
 	singleReader bool
 	canSplice    bool
@@ -517,9 +518,19 @@ func (ms *Server) handleInit() Status {
 // BenchmarkGoFuseReaddir-2       	    3511	    319765 ns/op
 func (ms *Server) loop(exitIdle bool) {
 	defer ms.loops.Done()
+	ms.reqMu.Lock()
+	firstReq := !ms.processedFirstRequest
+	if firstReq {
+		ms.opts.Logger.Printf("Preparing to read first request")
+		ms.processedFirstRequest = true
+	}
+	ms.reqMu.Unlock()
 exit:
 	for {
 		req, errNo := ms.readRequest(exitIdle)
+		if firstReq {
+			ms.opts.Logger.Printf("Done reading first request")
+		}
 		switch errNo {
 		case OK:
 			if req == nil {
