@@ -35,6 +35,12 @@ const (
 	maxMaxReaders = 16
 )
 
+type reqLogEntry struct {
+	startRead  time.Time
+	finishRead time.Time
+	success    bool
+}
+
 // Server contains the logic for reading from the FUSE device and
 // translating it to RawFileSystem interface calls.
 type Server struct {
@@ -65,6 +71,7 @@ type Server struct {
 	reqMu                 sync.Mutex
 	reqReaders            int
 	processedFirstRequest bool
+	reqLogs               []*reqLogEntry
 
 	singleReader bool
 	canSplice    bool
@@ -352,12 +359,28 @@ func (ms *Server) readRequest(exitIdle bool) (req *requestAlloc, code Status) {
 	destIface := ms.readPool.Get()
 	dest := destIface.([]byte)
 
+	reqLog := &reqLogEntry{}
+
 	var n int
 	err := handleEINTR(func() error {
 		var err error
+		reqLog.startRead = time.Now()
 		n, err = syscall.Read(ms.mountFd, dest)
+		reqLog.finishRead = time.Now()
+		reqLog.success = err == nil
 		return err
 	})
+	ms.reqMu.Lock()
+	if len(ms.reqLogs) == 100 {
+		var entries []string
+		for _, e := range ms.reqLogs {
+			entries = append(entries, fmt.Sprintf("%s %s %t", e.startRead, e.finishRead.Sub(e.startRead), e.success))
+		}
+		ms.opts.Logger.Printf("reqs: %s", strings.Join(entries, ", "))
+	} else if len(ms.reqLogs) < 101 {
+		ms.reqLogs = append(ms.reqLogs, reqLog)
+	}
+	ms.reqMu.Unlock()
 	if err != nil {
 		code = ToStatus(err)
 		ms.reqPool.Put(reqIface)
@@ -518,20 +541,20 @@ func (ms *Server) handleInit() Status {
 // BenchmarkGoFuseReaddir-2       	    3511	    319765 ns/op
 func (ms *Server) loop(exitIdle bool) {
 	defer ms.loops.Done()
-	ms.reqMu.Lock()
-	firstReq := !ms.processedFirstRequest
-	if firstReq {
-		ms.opts.Logger.Printf("Preparing to read first request")
-		ms.processedFirstRequest = true
-	}
-	ms.reqMu.Unlock()
+	//ms.reqMu.Lock()
+	//firstReq := !ms.processedFirstRequest
+	//if firstReq {
+	//	ms.opts.Logger.Printf("Preparing to read first request")
+	//	ms.processedFirstRequest = true
+	//}
+	//ms.reqMu.Unlock()
 exit:
 	for {
 		req, errNo := ms.readRequest(exitIdle)
-		if firstReq {
-			ms.opts.Logger.Printf("Done reading first request")
-			firstReq = false
-		}
+		//if firstReq {
+		//	ms.opts.Logger.Printf("Done reading first request")
+		//	firstReq = false
+		//}
 		switch errNo {
 		case OK:
 			if req == nil {
