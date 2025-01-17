@@ -370,15 +370,21 @@ func (ms *Server) readRequest(exitIdle bool) (req *requestAlloc, code Status) {
 		reqLog.success = err == nil
 		return err
 	})
+	var entriesToLog []string
 	ms.reqMu.Lock()
 	if len(ms.reqLogs) == 100 {
 		for _, e := range ms.reqLogs {
-			ms.opts.Logger.Printf("req: %s", fmt.Sprintf("%s %s %t", e.startRead, e.finishRead.Sub(e.startRead), e.success))
+			entriesToLog = append(entriesToLog, fmt.Sprintf("req %s %s %t", e.startRead, e.finishRead.Sub(e.startRead), e.success))
 		}
 	} else if len(ms.reqLogs) < 101 {
 		ms.reqLogs = append(ms.reqLogs, reqLog)
 	}
 	ms.reqMu.Unlock()
+	if len(entriesToLog) > 0 {
+		for _, e := range entriesToLog {
+			ms.opts.Logger.Println(e)
+		}
+	}
 	if err != nil {
 		code = ToStatus(err)
 		ms.reqPool.Put(reqIface)
