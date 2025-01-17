@@ -530,6 +530,7 @@ exit:
 		req, errNo := ms.readRequest(exitIdle)
 		if firstReq {
 			ms.opts.Logger.Printf("Done reading first request")
+			firstReq = false
 		}
 		switch errNo {
 		case OK:
