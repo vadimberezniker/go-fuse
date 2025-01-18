@@ -42,6 +42,7 @@ type reqLogEntry struct {
 	startHandle        time.Time
 	startSendResponse  time.Time
 	finishSendResponse time.Time
+	debugString        string
 }
 
 // Server contains the logic for reading from the FUSE device and
@@ -137,7 +138,7 @@ func (ms *Server) Unmount() (err error) {
 	ms.reqMu.Lock()
 	var entriesToLog []string
 	for _, e := range ms.reqLogs {
-		entriesToLog = append(entriesToLog, fmt.Sprintf("req read start %s duration %s parse %s handle %s reply %s", e.startRead, e.finishRead.Sub(e.startRead), e.startHandle.Sub(e.startParse), e.startSendResponse.Sub(e.startHandle), e.finishSendResponse.Sub(e.startSendResponse)))
+		entriesToLog = append(entriesToLog, fmt.Sprintf("req read start %s duration %s parse %s handle %s reply %s debug %s", e.startRead, e.finishRead.Sub(e.startRead), e.startHandle.Sub(e.startParse), e.startSendResponse.Sub(e.startHandle), e.finishSendResponse.Sub(e.startSendResponse)), e.debugString)
 	}
 	ms.reqMu.Unlock()
 	for _, e := range entriesToLog {
@@ -601,7 +602,7 @@ func (ms *Server) handleRequest(req *requestAlloc, reqLog *reqLogEntry) Status {
 		req.bufferPoolOutputBuf = req.outPayload
 	}
 	reqLog.startHandle = time.Now()
-	ms.protocolServer.handleRequest(h, &req.request)
+	ms.protocolServer.handleRequest(h, &req.request, reqLog)
 	if req.suppressReply {
 		return OK
 	}
