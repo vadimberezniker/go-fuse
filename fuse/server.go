@@ -138,7 +138,7 @@ func (ms *Server) Unmount() (err error) {
 	ms.reqMu.Lock()
 	var entriesToLog []string
 	for _, e := range ms.reqLogs {
-		entriesToLog = append(entriesToLog, fmt.Sprintf("req read start %s duration %s parse %s handle %s reply %s debug %s", e.startRead, e.finishRead.Sub(e.startRead), e.startHandle.Sub(e.startParse), e.startSendResponse.Sub(e.startHandle), e.finishSendResponse.Sub(e.startSendResponse)), e.debugString)
+		entriesToLog = append(entriesToLog, fmt.Sprintf("req read start %s duration %s parse %s handle %s reply %s debug %s", e.startRead, e.finishRead.Sub(e.startRead), e.startHandle.Sub(e.startParse), e.startSendResponse.Sub(e.startHandle), e.finishSendResponse.Sub(e.startSendResponse), e.debugString))
 	}
 	ms.reqMu.Unlock()
 	for _, e := range entriesToLog {
