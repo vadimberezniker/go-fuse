@@ -36,9 +36,12 @@ const (
 )
 
 type reqLogEntry struct {
-	startRead  time.Time
-	finishRead time.Time
-	success    bool
+	startRead          time.Time
+	finishRead         time.Time
+	startParse         time.Time
+	startHandle        time.Time
+	startSendResponse  time.Time
+	finishSendResponse time.Time
 }
 
 // Server contains the logic for reading from the FUSE device and
@@ -134,7 +137,7 @@ func (ms *Server) Unmount() (err error) {
 	ms.reqMu.Lock()
 	var entriesToLog []string
 	for _, e := range ms.reqLogs {
-		entriesToLog = append(entriesToLog, fmt.Sprintf("req %s %s %t", e.startRead, e.finishRead.Sub(e.startRead), e.success))
+		entriesToLog = append(entriesToLog, fmt.Sprintf("req read start %s duration %s parse %s handle %s reply %s", e.startRead, e.finishRead.Sub(e.startRead), e.startHandle.Sub(e.startParse), e.startSendResponse.Sub(e.startHandle), e.finishSendResponse.Sub(e.startSendResponse)))
 	}
 	ms.reqMu.Unlock()
 	for _, e := range entriesToLog {
@@ -354,11 +357,11 @@ func handleEINTR(fn func() error) (err error) {
 
 // Returns a new request, or error. In case exitIdle is given, returns
 // nil, OK if we have too many readers already.
-func (ms *Server) readRequest(exitIdle bool) (req *requestAlloc, code Status) {
+func (ms *Server) readRequest(exitIdle bool) (req *requestAlloc, entry *reqLogEntry, code Status) {
 	ms.reqMu.Lock()
 	if ms.reqReaders > ms.maxReaders {
 		ms.reqMu.Unlock()
-		return nil, OK
+		return nil, nil, OK
 	}
 	ms.reqReaders++
 	ms.reqMu.Unlock()
@@ -390,7 +393,7 @@ func (ms *Server) readRequest(exitIdle bool) (req *requestAlloc, code Status) {
 		ms.reqMu.Lock()
 		ms.reqReaders--
 		ms.reqMu.Unlock()
-		return nil, code
+		return nil, nil, code
 	}
 
 	if ms.latencies != nil {
@@ -401,7 +404,7 @@ func (ms *Server) readRequest(exitIdle bool) (req *requestAlloc, code Status) {
 	gobbled := req.setInput(dest[:n])
 	if len(req.inputBuf) < int(unsafe.Sizeof(InHeader{})) {
 		log.Printf("Short read for input header: %v", req.inputBuf)
-		return nil, EINVAL
+		return nil, nil, EINVAL
 	}
 
 	if !gobbled {
@@ -413,7 +416,7 @@ func (ms *Server) readRequest(exitIdle bool) (req *requestAlloc, code Status) {
 		go ms.loop(true)
 	}
 
-	return req, OK
+	return req, reqLog, OK
 }
 
 // returnRequest returns a request to the pool of unused requests.
@@ -495,13 +498,13 @@ func (ms *Server) handleInit() Status {
 	// and don't spawn new readers.
 	orig := ms.singleReader
 	ms.singleReader = true
-	req, errNo := ms.readRequest(false)
+	req, reqLog, errNo := ms.readRequest(false)
 	ms.singleReader = orig
 
 	if errNo != OK || req == nil {
 		return errNo
 	}
-	if code := ms.handleRequest(req); !code.Ok() {
+	if code := ms.handleRequest(req, reqLog); !code.Ok() {
 		return code
 	}
 
@@ -544,20 +547,9 @@ func (ms *Server) handleInit() Status {
 // BenchmarkGoFuseReaddir-2       	    3511	    319765 ns/op
 func (ms *Server) loop(exitIdle bool) {
 	defer ms.loops.Done()
-	//ms.reqMu.Lock()
-	//firstReq := !ms.processedFirstRequest
-	//if firstReq {
-	//	ms.opts.Logger.Printf("Preparing to read first request")
-	//	ms.processedFirstRequest = true
-	//}
-	//ms.reqMu.Unlock()
 exit:
 	for {
-		req, errNo := ms.readRequest(exitIdle)
-		//if firstReq {
-		//	ms.opts.Logger.Printf("Done reading first request")
-		//	firstReq = false
-		//}
+		req, reqLog, errNo := ms.readRequest(exitIdle)
 		switch errNo {
 		case OK:
 			if req == nil {
@@ -580,20 +572,21 @@ exit:
 		}
 
 		if ms.singleReader {
-			go ms.handleRequest(req)
+			go ms.handleRequest(req, reqLog)
 		} else {
-			ms.handleRequest(req)
+			ms.handleRequest(req, reqLog)
 		}
 	}
 }
 
-func (ms *Server) handleRequest(req *requestAlloc) Status {
+func (ms *Server) handleRequest(req *requestAlloc, reqLog *reqLogEntry) Status {
 	defer ms.returnRequest(req)
 	if ms.opts.SingleThreaded {
 		ms.requestProcessingMu.Lock()
 		defer ms.requestProcessingMu.Unlock()
 	}
 
+	reqLog.startParse = time.Now()
 	h, inSize, outSize, outPayloadSize, code := parseRequest(req.inputBuf, &ms.kernelSettings)
 	if !code.Ok() {
 		ms.opts.Logger.Printf("parseRequest: %v", code)
@@ -608,11 +601,14 @@ func (ms *Server) handleRequest(req *requestAlloc) Status {
 		req.outPayload = ms.buffers.AllocBuffer(uint32(outPayloadSize))
 		req.bufferPoolOutputBuf = req.outPayload
 	}
+	reqLog.startHandle = time.Now()
 	ms.protocolServer.handleRequest(h, &req.request)
 	if req.suppressReply {
 		return OK
 	}
+	reqLog.startSendResponse = time.Now()
 	errno := ms.write(&req.request)
+	reqLog.finishSendResponse = time.Now()
 	if errno != 0 {
 		// Ignore ENOENT for INTERRUPT responses which
 		// indicates that the referred request is no longer
