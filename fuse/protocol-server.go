@@ -28,12 +28,14 @@ type protocolServer struct {
 	retrieveTab  map[uint64]*retrieveCacheRequest // notifyUnique -> retrieve request
 }
 
-func (ms *protocolServer) handleRequest(h *operationHandler, req *request) {
+func (ms *protocolServer) handleRequest(h *operationHandler, req *request, reqLog *reqLogEntry) {
 	ms.addInflight(req)
 	defer ms.dropInflight(req)
 
 	if req.status.Ok() && ms.opts.Debug {
-		ms.opts.Logger.Println(req.InputDebug())
+		dstr := req.InputDebug()
+		reqLog.debugString = dstr
+		ms.opts.Logger.Println(dstr)
 	}
 
 	if req.inHeader().NodeId == pollHackInode ||
