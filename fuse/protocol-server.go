@@ -32,10 +32,12 @@ func (ms *protocolServer) handleRequest(h *operationHandler, req *request, reqLo
 	ms.addInflight(req)
 	defer ms.dropInflight(req)
 
-	if req.status.Ok() && ms.opts.Debug {
+	if req.status.Ok() {
 		dstr := req.InputDebug()
 		reqLog.debugString = dstr
-		ms.opts.Logger.Println(dstr)
+		if ms.opts.Debug {
+			ms.opts.Logger.Println(dstr)
+		}
 	}
 
 	if req.inHeader().NodeId == pollHackInode ||
