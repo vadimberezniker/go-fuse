@@ -379,7 +379,6 @@ func (ms *Server) readRequest(exitIdle bool) (req *requestAlloc, entry *reqLogEn
 		reqLog.startRead = time.Now()
 		n, err = syscall.Read(ms.mountFd, dest)
 		reqLog.finishRead = time.Now()
-		reqLog.success = err == nil
 		return err
 	})
 	ms.reqMu.Lock()
